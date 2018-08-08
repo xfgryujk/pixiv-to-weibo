@@ -6,12 +6,16 @@ import json
 import math
 import random
 import re
+import sys
 import time
 from asyncio import get_event_loop, gather
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from PIL import Image
 from aiohttp import ClientSession, ContentTypeError
+
+JP_TZ = timezone(timedelta(hours=9))
 
 
 # https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/random.js#L1
@@ -129,8 +133,8 @@ class Pixiv2Weibo:
         print(image_info)
 
         # 爬图
-        image_data = await self._get_image_data(image_info['illust_id'])
-        image_data = map(encrypt_image, image_data)
+        image_data = await self._get_image_data(image_info)
+        image_data = map(encrypt_image, filter(lambda x: x, image_data))
         # for index, data in enumerate(image_data):
         #     with open(str(index) + '.jpg', 'wb') as f:
         #         f.write(data)
@@ -145,7 +149,11 @@ class Pixiv2Weibo:
         print(image_ids)
 
         # 发微博
-        text = f'{image_info["title"]} 作者：{image_info["user_name"]} illust_id={image_info["illust_id"]}'
+        text = (
+            f'#{image_info["rank"]} {image_info["title"]} 作者：{image_info["user_name"]} '
+            f'({",".join(image_info["tags"])}) '
+            f'https://www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
+        )
         await self.post_weibo(text, image_ids)
 
     async def _load_cache(self):
@@ -191,48 +199,54 @@ class Pixiv2Weibo:
         random.shuffle(rand_list)
         return image_info[:20] + rand_list
 
-    async def _get_image_data(self, illust_id):
+    async def _get_image_data(self, image_info):
         async def get_by_url(url_):
             async with self._session.get(url_, headers={
                 'referer': 'https://www.pixiv.net/member_illust.php'
             }) as r_:
-                return await r_.read()
+                return await r_.read() if r_.status < 400 else None
 
-        async with self._session.get('https://www.pixiv.net/member_illust.php', params={
-            'mode':      'manga',
-            'illust_id': illust_id
-        }) as r:
-            html = await r.text()
+        date = datetime.fromtimestamp(image_info['illust_upload_timestamp'],
+                                      JP_TZ).strftime('%Y/%m/%d/%H/%M/%S')
+        illust_id = image_info['illust_id']
         # 最多9图
-        urls = re.findall(r'"([^"]*?//i.pximg.net/img-master/img[^"]*?)"', html)[:9]
+        urls = [
+            f'https://i.pximg.net/img-master/img/{date}/{illust_id}_p{i}_master1200.jpg'
+            for i in range(min(9, int(image_info['illust_page_count'])))
+        ]
         print(urls)
         return await gather(*(
             get_by_url(url) for url in urls
         ))
 
     async def _upload_image(self, data):
-        async with self._session.post('https://picupload.weibo.com/interface/pic_upload.php', params={
-            'cb':          'https://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_1533624300509412',
-            'mime':        'image/png',
-            'data':        'base64',
-            'url':         '0',
-            'markpos':     '1',
-            'logo':        '',
-            'nick':        '0',
-            'marks':       '0',
-            'app':         'miniblog',
-            's':           'rdxt',
-            'pri':         'null',
-            'file_source': '1'
-        }, data={
-            'b64_data': base64.b64encode(data).decode()
-        }, allow_redirects=False) as r:
-            if 'Location' not in r.headers:
+        # 最多试5次
+        for i in range(5):
+            async with self._session.post('https://picupload.weibo.com/interface/pic_upload.php', params={
+                'cb':          'https://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_1533624300509412',
+                'mime':        'image/png',
+                'data':        'base64',
+                'url':         '0',
+                'markpos':     '1',
+                'logo':        '',
+                'nick':        '0',
+                'marks':       '0',
+                'app':         'miniblog',
+                's':           'rdxt',
+                'pri':         'null',
+                'file_source': '1'
+            }, data={
+                'b64_data': base64.b64encode(data).decode()
+            }, allow_redirects=False) as r:
+                if 'Location' not in r.headers:
+                    continue
+                res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
+            if not res:
                 print(r.headers)
                 print(await r.text())
-                return None
-            res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
-        return res[0][0] if res else None
+                continue
+            return res[0][0]
+        return None
 
     async def post_weibo(self, text, image_ids):
         async with self._session.post('https://weibo.com/aj/mblog/add', params={
@@ -274,4 +288,6 @@ async def main():
 
 
 if __name__ == '__main__':
-    get_event_loop().run_until_complete(main())
+    with open('out.log', 'w', encoding='utf-8') as f:
+        sys.stdout = sys.stderr = f
+        get_event_loop().run_until_complete(main())
