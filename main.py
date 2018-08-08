@@ -4,10 +4,9 @@
 import base64
 import json
 import math
-import random
 import re
 import time
-from asyncio import get_event_loop, gather
+from asyncio import get_event_loop, gather, TimeoutError
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -257,7 +256,8 @@ class Pixiv2Weibo:
                     if 'Location' not in r.headers:
                         continue
                     res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
-            except IOError:
+            except (IOError, TimeoutError):
+                print('超时')
                 continue
             if not res:
                 print(r.headers)
