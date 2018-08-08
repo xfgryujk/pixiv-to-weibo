@@ -6,7 +6,6 @@ import json
 import math
 import random
 import re
-import sys
 import time
 from asyncio import get_event_loop, gather
 from datetime import datetime, timedelta, timezone
@@ -124,7 +123,8 @@ class Pixiv2Weibo:
         self._cache = await self._load_cache()
         try:
             image_info = self._cache['image_info'][self._cache['next_index']]
-        except IndexError:  # 没图了
+        except IndexError:
+            print('没图了')
             return
         self._cache['next_index'] += 1
         with open(self.CACHE_PATH, 'w') as f:
@@ -172,32 +172,46 @@ class Pixiv2Weibo:
         return cache
 
     async def _get_image_info(self):
-        async def get_ranking_page(page):
-            async with self._session.get('https://www.pixiv.net/ranking.php', params={
-                'mode':   'male_r18',
-                'format': 'json',
-                'p':      page
-            }) as r:
+        async def get_ranking_page(page, mode, content):
+            params_ = {
+                'mode':    mode,
+                'format':  'json',
+                'p':       page
+            }
+            if content:
+                params_['content'] = content
+            async with self._session.get('https://www.pixiv.net/ranking.php', params=params_) as r:
                 data = await r.json()
                 # print(data)
             return data['contents']
 
-        # 爬3页
+        params = (
+            ('male', ''),             # 受男性欢迎
+            ('male_r18', ''),         # 受男性欢迎 R18
+            ('daily', 'illust'),      # 今日 插画
+            ('daily_r18', 'illust'),  # 今日 插画 R18
+        )
+        # 每类爬2页
         pages = await gather(*(
-            get_ranking_page(page) for page in range(1, 4)
+            get_ranking_page(page, *param) for page in range(1, 2) for param in params
         ))
         image_info = sum(pages, [])
-        image_info = self._sort_image_info(image_info)
+        image_info = self._process_image_info(image_info)
         # print(image_info)
         return image_info
 
     @staticmethod
-    def _sort_image_info(image_info):
-        # 前20一定要发，后面随机排序
-        image_info = sorted(image_info, key=lambda info: info['rank'])
-        rand_list = image_info[20:]
-        random.shuffle(rand_list)
-        return image_info[:20] + rand_list
+    def _process_image_info(image_info):
+        # 过滤BL
+        image_info = filter(lambda info: not info['illust_content_type']['bl'], image_info)
+        # 去重
+        image_info = {
+            info['illust_id']: info
+            for info in image_info
+        }
+        # 按排名升序
+        image_info = sorted(image_info.values(), key=lambda info: info['rank'])
+        return image_info
 
     async def _get_image_data(self, image_info):
         async def get_by_url(url_):
@@ -288,6 +302,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    with open('out.log', 'w', encoding='utf-8') as f:
-        sys.stdout = sys.stderr = f
-        get_event_loop().run_until_complete(main())
+    get_event_loop().run_until_complete(main())
