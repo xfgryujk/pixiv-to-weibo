@@ -155,6 +155,7 @@ class Pixiv2Weibo:
             f'https://www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
         )
         await self.post_weibo(text, image_ids)
+        print('OK')
 
     async def _load_cache(self):
         date = time.strftime('%Y-%m-%d')
@@ -236,25 +237,28 @@ class Pixiv2Weibo:
     async def _upload_image(self, data):
         # 最多试5次
         for i in range(5):
-            async with self._session.post('https://picupload.weibo.com/interface/pic_upload.php', params={
-                'cb':          'https://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_1533624300509412',
-                'mime':        'image/png',
-                'data':        'base64',
-                'url':         '0',
-                'markpos':     '1',
-                'logo':        '',
-                'nick':        '0',
-                'marks':       '0',
-                'app':         'miniblog',
-                's':           'rdxt',
-                'pri':         'null',
-                'file_source': '1'
-            }, data={
-                'b64_data': base64.b64encode(data).decode()
-            }, allow_redirects=False) as r:
-                if 'Location' not in r.headers:
-                    continue
-                res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
+            try:
+                async with self._session.post('https://picupload.weibo.com/interface/pic_upload.php', params={
+                    'cb':          'https://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_1',
+                    'mime':        'image/png',
+                    'data':        'base64',
+                    'url':         '0',
+                    'markpos':     '1',
+                    'logo':        '',
+                    'nick':        '0',
+                    'marks':       '0',
+                    'app':         'miniblog',
+                    's':           'rdxt',
+                    'pri':         'null',
+                    'file_source': '1'
+                }, data={
+                    'b64_data': base64.b64encode(data).decode()
+                }, allow_redirects=False) as r:
+                    if 'Location' not in r.headers:
+                        continue
+                    res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
+            except IOError:
+                continue
             if not res:
                 print(r.headers)
                 print(await r.text())
