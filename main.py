@@ -157,7 +157,8 @@ class Pixiv2Weibo:
         print('OK')
 
     async def _load_cache(self):
-        date = time.strftime('%Y-%m-%d')
+        # 日本时间中午12点更新
+        date = (datetime.now(JP_TZ) - timedelta(hours=12, minutes=10)).strftime('%Y-%m-%d')
         cache = self._load_json(self.CACHE_PATH)
         if cache and cache['date'] == date:
             return cache
