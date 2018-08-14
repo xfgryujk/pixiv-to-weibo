@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from PIL import Image
-from aiohttp import ClientSession, ContentTypeError
+from aiohttp import ClientSession, ContentTypeError, ClientError
 
 JP_TZ = timezone(timedelta(hours=9))
 
@@ -77,7 +77,7 @@ def encrypt_image(data):
     img = Image.open(f)
     block_width = img.width // 8
     block_height = img.height // 8
-    new_img = Image.new('RGBA', (block_width * 8, block_height * 8))
+    new_img = Image.new('RGB', (block_width * 8, block_height * 8))
     seq = RandomSequence(block_width * block_height, 114514)
     for block_y in range(block_height):
         for block_x in range(block_width):
@@ -87,7 +87,7 @@ def encrypt_image(data):
             block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
             new_img.paste(block, (new_block_x * 8, new_block_y * 8))
     f = BytesIO()
-    new_img.save(f, 'PNG')
+    new_img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
     return f.getvalue()
 
 
@@ -105,6 +105,7 @@ class Pixiv2Weibo:
             'PHPSESSID': self._config['pixiv_cookie'],
             'SUB':       self._config['weibo_cookie']
         })
+        # TODO 保持微博session
 
     async def close(self):
         await self._session.close()
@@ -149,9 +150,10 @@ class Pixiv2Weibo:
 
         # 发微博
         text = (
-            f'#{image_info["rank"]} {image_info["title"]} 作者：{image_info["user_name"]} '
-            f'({",".join(image_info["tags"])}) '
-            f'https://www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
+            f'#{image_info["rank"]} {image_info["title"]}\n'
+            f'作者：{image_info["user_name"]}\n'
+            f'标签：{",".join(image_info["tags"])}\n'
+            f'www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
         )
         await self.post_weibo(text, image_ids)
         print('OK')
@@ -240,7 +242,7 @@ class Pixiv2Weibo:
             try:
                 async with self._session.post('https://picupload.weibo.com/interface/pic_upload.php', params={
                     'cb':          'https://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_1',
-                    'mime':        'image/png',
+                    'mime':        'image/jpeg',
                     'data':        'base64',
                     'url':         '0',
                     'markpos':     '1',
@@ -257,7 +259,7 @@ class Pixiv2Weibo:
                     if 'Location' not in r.headers:
                         continue
                     res = re.findall(r'&pid=(.*?)(&|$)', r.headers['Location'])
-            except (IOError, TimeoutError):
+            except (ClientError, IOError, TimeoutError):
                 print('超时')
                 continue
             if not res:
