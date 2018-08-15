@@ -6,9 +6,10 @@ import json
 import math
 import re
 import time
-from asyncio import get_event_loop, gather, TimeoutError
+from asyncio import get_event_loop, ensure_future, gather, sleep, TimeoutError
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pprint import pprint
 
 from PIL import Image
 from aiohttp import ClientSession, ContentTypeError, ClientError
@@ -72,13 +73,13 @@ class RandomSequence:
 
 
 # https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
-def encrypt_image(data):
+def encrypt_image(data, seed=114514):
     f = BytesIO(data)
     img = Image.open(f)
     block_width = img.width // 8
     block_height = img.height // 8
     new_img = Image.new('RGB', (block_width * 8, block_height * 8))
-    seq = RandomSequence(block_width * block_height, 114514)
+    seq = RandomSequence(block_width * block_height, seed)
     for block_y in range(block_height):
         for block_x in range(block_width):
             index = seq.next()
@@ -91,90 +92,16 @@ def encrypt_image(data):
     return f.getvalue()
 
 
-class Pixiv2Weibo:
-    CONFIG_PATH = 'config.json'
-    CACHE_PATH = 'cache.json'
-
-    def __init__(self):
-        self._config = self._load_json(self.CONFIG_PATH, {
-            'pixiv_cookie': '',
-            'weibo_cookie': ''
-        })
-        self._cache = None
+class PixivApi:
+    def __init__(self, cookie):
         self._session = ClientSession(cookies={
-            'PHPSESSID': self._config['pixiv_cookie'],
-            'SUB':       self._config['weibo_cookie']
+            'PHPSESSID': cookie,
         })
-        # TODO 保持微博session
 
     async def close(self):
         await self._session.close()
 
-    @staticmethod
-    def _load_json(path, default=None):
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except FileNotFoundError:
-            return default
-
-    async def start(self):
-        # 取要发的图信息
-        self._cache = await self._load_cache()
-        try:
-            image_info = self._cache['image_info'][self._cache['next_index']]
-        except IndexError:
-            print('没图了')
-            return
-        self._cache['next_index'] += 1
-        with open(self.CACHE_PATH, 'w') as f:
-            json.dump(self._cache, f)
-        print('图片信息：')
-        print(image_info)
-
-        # 爬图
-        image_data = await self._get_image_data(image_info)
-        image_data = map(encrypt_image, filter(lambda x: x, image_data))
-        # for index, data in enumerate(image_data):
-        #     with open(str(index) + '.jpg', 'wb') as f:
-        #         f.write(data)
-
-        # 上传
-        print('正在上传图片')
-        image_ids = await gather(*(
-            self._upload_image(data) for data in image_data
-        ))
-        image_ids = list(filter(lambda x: x, image_ids))
-        print('image_ids：')
-        print(image_ids)
-
-        # 发微博
-        text = (
-            f'#{image_info["rank"]} {image_info["title"]}\n'
-            f'作者：{image_info["user_name"]}\n'
-            f'标签：{",".join(image_info["tags"])}\n'
-            f'www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
-        )
-        await self.post_weibo(text, image_ids)
-        print('OK')
-
-    async def _load_cache(self):
-        # 日本时间中午12点更新
-        date = (datetime.now(JP_TZ) - timedelta(hours=12, minutes=10)).strftime('%Y-%m-%d')
-        cache = self._load_json(self.CACHE_PATH)
-        if cache and cache['date'] == date:
-            return cache
-
-        cache = {
-            'date':       date,
-            'next_index': 0,
-            'image_info': await self._get_image_info()
-        }
-        with open(self.CACHE_PATH, 'w') as f:
-            json.dump(cache, f)
-        return cache
-
-    async def _get_image_info(self):
+    async def get_image_info(self):
         async def get_ranking_page(page, mode, content):
             params_ = {
                 'mode':    mode,
@@ -216,7 +143,7 @@ class Pixiv2Weibo:
         image_info = sorted(image_info.values(), key=lambda info: info['rank'])
         return image_info
 
-    async def _get_image_data(self, image_info):
+    async def get_image_data(self, image_info):
         async def get_by_url(url_):
             async with self._session.get(url_, headers={
                 'referer': 'https://www.pixiv.net/member_illust.php'
@@ -231,12 +158,22 @@ class Pixiv2Weibo:
             f'https://i.pximg.net/img-master/img/{date}/{illust_id}_p{i}_master1200.jpg'
             for i in range(min(9, int(image_info['illust_page_count'])))
         ]
-        print(urls)
+        pprint(urls)
         return await gather(*(
             get_by_url(url) for url in urls
         ))
 
-    async def _upload_image(self, data):
+
+class WeiboApi:
+    def __init__(self, cookie):
+        self._session = ClientSession(cookies={
+            'SUB': cookie,
+        })
+
+    async def close(self):
+        await self._session.close()
+
+    async def upload_image(self, data):
         # 最多试5次
         for i in range(5):
             try:
@@ -300,6 +237,91 @@ class Pixiv2Weibo:
                 return
         if res['code'] != '100000':
             print(res)
+
+
+class Pixiv2Weibo:
+    CONFIG_PATH = 'config.json'
+    CACHE_PATH = 'cache.json'
+
+    def __init__(self):
+        self._config = self._load_json(self.CONFIG_PATH, {
+            'pixiv_cookie': '',
+            'weibo_cookie': ''
+        })
+        self._cache = None
+        self._pixiv = PixivApi(self._config['pixiv_cookie'])
+        self._weibo = WeiboApi(self._config['weibo_cookie'])
+        # TODO 保持微博session
+
+    async def close(self):
+        await gather(self._pixiv.close(), self._weibo.close())
+
+    @staticmethod
+    def _load_json(path, default=None):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return default
+
+    async def start(self):
+        # 取要发的图信息
+        self._cache = await self._load_cache()
+        try:
+            image_info = self._cache['image_info'][self._cache['next_index']]
+        except IndexError:
+            print('没图了')
+            return
+        self._cache['next_index'] += 1
+        with open(self.CACHE_PATH, 'w') as f:
+            json.dump(self._cache, f)
+        print('图片信息：')
+        pprint(image_info)
+
+        # 爬图
+        image_data = await self._pixiv.get_image_data(image_info)
+        image_data = map(encrypt_image, filter(lambda x: x, image_data))
+        # for index, data in enumerate(image_data):
+        #     with open(str(index) + '.jpg', 'wb') as f:
+        #         f.write(data)
+
+        # 上传
+        print('正在上传图片')
+        futures = []
+        for data in image_data:
+            futures.append(ensure_future(self._weibo.upload_image(data)))
+            # 加密同时上传，而不是全部加密后再全部上传
+            await sleep(0)
+        image_ids = await gather(*futures)
+        image_ids = list(filter(lambda x: x, image_ids))
+        print('image_ids：')
+        pprint(image_ids)
+
+        # 发微博
+        text = (
+            f'#{image_info["rank"]} {image_info["title"]}\n'
+            f'作者：{image_info["user_name"]}\n'
+            f'标签：{",".join(image_info["tags"])}\n'
+            f'www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
+        )
+        await self._weibo.post_weibo(text, image_ids)
+        print('OK')
+
+    async def _load_cache(self):
+        # 日本时间中午12点更新
+        date = (datetime.now(JP_TZ) - timedelta(hours=12, minutes=10)).strftime('%Y-%m-%d')
+        cache = self._load_json(self.CACHE_PATH)
+        if cache and cache['date'] == date:
+            return cache
+
+        cache = {
+            'date':       date,
+            'next_index': 0,
+            'image_info': await self._pixiv.get_image_info()
+        }
+        with open(self.CACHE_PATH, 'w') as f:
+            json.dump(cache, f)
+        return cache
 
 
 async def main():
