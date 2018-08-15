@@ -1,4 +1,5 @@
 {
   "pixiv_cookie": "<P站的PHPSESSID cookie>",
-  "weibo_cookie": "<微博的SUB cookie>"
+  "weibo_username": "<微博用户名>",
+  "weibo_password": "<微博密码>"
 }

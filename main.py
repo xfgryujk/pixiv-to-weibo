@@ -14,16 +14,20 @@ from weibo import WeiboApi
 class Pixiv2Weibo:
     CONFIG_PATH = 'config.json'
     CACHE_PATH = 'cache.json'
+    WEIBO_COOKIE_PATH = 'weibo_cookie.pickle'
 
     def __init__(self):
         self._config = self._load_json(self.CONFIG_PATH, {
-            'pixiv_cookie': '',
-            'weibo_cookie': ''
+            'pixiv_cookie':   '',
+            'weibo_username': '',
+            'weibo_password': ''
         })
-        self._cache = None
         self._pixiv = PixivApi(self._config['pixiv_cookie'])
-        self._weibo = WeiboApi(self._config['weibo_cookie'])
-        # TODO 保持微博session
+        self._weibo = WeiboApi()
+        try:
+            self._weibo.load_cookie(self.WEIBO_COOKIE_PATH)
+        except FileNotFoundError:
+            pass
 
     async def close(self):
         await gather(self._pixiv.close(), self._weibo.close())
@@ -37,16 +41,21 @@ class Pixiv2Weibo:
             return default
 
     async def start(self):
+        # 登录微博
+        login_future = ensure_future(self._weibo.login_if_need(
+            self._config['weibo_username'], self._config['weibo_password']
+        ))
+
         # 取要发的图信息
-        self._cache = await self._load_cache()
+        cache = await self._load_cache()
         try:
-            image_info = self._cache['image_info'][self._cache['next_index']]
+            image_info = cache['image_info'][cache['next_index']]
         except IndexError:
             print('没图了')
             return
-        self._cache['next_index'] += 1
+        cache['next_index'] += 1
         with open(self.CACHE_PATH, 'w') as f:
-            json.dump(self._cache, f)
+            json.dump(cache, f)
         print('图片信息：')
         pprint(image_info)
 
@@ -56,6 +65,9 @@ class Pixiv2Weibo:
         # for index, data in enumerate(image_data):
         #     with open(str(index) + '.jpg', 'wb') as f:
         #         f.write(data)
+
+        await login_future
+        self._weibo.save_cookie(self.WEIBO_COOKIE_PATH)
 
         # 上传
         print('正在上传图片')

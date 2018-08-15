@@ -5,15 +5,17 @@ from datetime import datetime, timedelta, timezone
 from pprint import pprint
 
 from aiohttp import ClientSession
+from yarl import URL
 
 JP_TZ = timezone(timedelta(hours=9))
 
 
 class PixivApi:
     def __init__(self, cookie):
-        self._session = ClientSession(cookies={
+        self._session = ClientSession()
+        self._session.cookie_jar.update_cookies({
             'PHPSESSID': cookie,
-        })
+        }, URL('https://pixiv.net'))
 
     async def close(self):
         await self._session.close()
