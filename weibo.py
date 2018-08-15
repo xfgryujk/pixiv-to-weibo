@@ -29,7 +29,7 @@ class WeiboApi:
         async with self._session.get('https://weibo.com/') as r:
             url = URL(r.url)
         # 被重定向到访客系统
-        if url.host != 'weibo.com' or url.path == '/':
+        if url.host != 'weibo.com' or '/home' not in url.path:
             await self.login(username, password)
 
     # https://github.com/xchaoinfo/fuck-login/blob/master/007%20weibo.com/weibo.com.py
