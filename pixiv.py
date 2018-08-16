@@ -15,7 +15,7 @@ class PixivApi:
         self._session = ClientSession()
         self._session.cookie_jar.update_cookies({
             'PHPSESSID': cookie,
-        }, URL('https://pixiv.net'))
+        }, URL('https://www.pixiv.net'))
 
     async def close(self):
         await self._session.close()
