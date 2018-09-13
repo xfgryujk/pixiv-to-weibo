@@ -1,5 +1,6 @@
 {
   "pixiv_cookie": "<P站的PHPSESSID cookie>",
+  "pixiv_proxy": "[连接P站用的代理，格式如http://127.0.0.1:8080，可以为空]",
   "weibo_username": "<微博用户名>",
   "weibo_password": "<微博密码>"
 }

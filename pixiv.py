@@ -11,11 +11,12 @@ JP_TZ = timezone(timedelta(hours=9))
 
 
 class PixivApi:
-    def __init__(self, cookie):
+    def __init__(self, cookie, proxy=None):
         self._session = ClientSession()
         self._session.cookie_jar.update_cookies({
             'PHPSESSID': cookie,
         }, URL('https://www.pixiv.net'))
+        self._proxy = proxy or None
 
     async def close(self):
         await self._session.close()
@@ -29,7 +30,8 @@ class PixivApi:
             }
             if content:
                 params_['content'] = content
-            async with self._session.get('https://www.pixiv.net/ranking.php', params=params_) as r:
+            async with self._session.get('https://www.pixiv.net/ranking.php', params=params_,
+                                         proxy=self._proxy) as r:
                 data = await r.json()
                 # print(data)
             return data['contents']
@@ -66,7 +68,7 @@ class PixivApi:
         async def get_by_url(url_):
             async with self._session.get(url_, headers={
                 'referer': 'https://www.pixiv.net/member_illust.php'
-            }) as r_:
+            }, proxy=self._proxy) as r_:
                 return await r_.read() if r_.status < 400 else None
 
         date = datetime.fromtimestamp(image_info['illust_upload_timestamp'],

@@ -19,10 +19,11 @@ class Pixiv2Weibo:
     def __init__(self):
         self._config = self._load_json(self.CONFIG_PATH, {
             'pixiv_cookie':   '',
+            'pixiv_proxy':    '',
             'weibo_username': '',
             'weibo_password': ''
         })
-        self._pixiv = PixivApi(self._config['pixiv_cookie'])
+        self._pixiv = PixivApi(self._config['pixiv_cookie'], self._config['pixiv_proxy'])
         self._weibo = WeiboApi()
         try:
             self._weibo.load_cookie(self.WEIBO_COOKIE_PATH)
