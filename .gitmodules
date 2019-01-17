@@ -1,0 +1,3 @@
+[submodule "anticens"]
+	path = anticens
+	url = https://github.com/xfgryujk/anti-https-censorship.git

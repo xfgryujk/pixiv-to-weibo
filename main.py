@@ -6,6 +6,7 @@ from asyncio import get_event_loop, ensure_future, gather, sleep
 from datetime import datetime, timedelta
 from pprint import pprint
 
+from anticens import anticens
 from imgcry import encrypt_image
 from pixiv import PixivApi, JP_TZ
 from weibo import WeiboApi
@@ -110,6 +111,12 @@ class Pixiv2Weibo:
 
 
 async def main():
+    anticens.add_hosts([
+        'www.pixiv.net',
+        'i.pximg.net'
+    ])
+    anticens.enable()
+
     p2w = Pixiv2Weibo()
     await p2w.start()
     await p2w.close()
