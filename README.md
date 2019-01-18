@@ -8,3 +8,5 @@
    ```
    */20 * * * * cd /home/ubuntu/pixiv-to-weibo && python3 main.py >out.log 2>&1
    ```
+
+如果需要输入验证码则在图形环境下执行login.py
