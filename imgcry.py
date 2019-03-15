@@ -67,6 +67,13 @@ class RandomSequence:
 def encrypt_image(data, seed=114514):
     f = BytesIO(data)
     img = Image.open(f)
+
+    # 最短边长超过1080的会被微博压缩
+    min_size = min(img.width, img.height)
+    if min_size > 1080:
+        scale = 1080 / min_size
+        img = img.resize((round(img.width * scale), round(img.height * scale)), Image.BICUBIC)
+
     block_width = img.width // 8
     block_height = img.height // 8
     new_img = Image.new('RGB', (block_width * 8, block_height * 8))
@@ -78,6 +85,7 @@ def encrypt_image(data, seed=114514):
             new_block_y = index // block_width
             block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
             new_img.paste(block, (new_block_x * 8, new_block_y * 8))
+
     f = BytesIO()
     new_img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
     return f.getvalue()
