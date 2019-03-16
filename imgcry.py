@@ -5,7 +5,7 @@ import re
 import time
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 # https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/random.js#L1
@@ -63,7 +63,6 @@ class RandomSequence:
         return result
 
 
-# https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
 def encrypt_image(data, seed=114514):
     f = BytesIO(data)
     img = Image.open(f)
@@ -74,18 +73,30 @@ def encrypt_image(data, seed=114514):
         scale = 1080 / min_size
         img = img.resize((round(img.width * scale), round(img.height * scale)), Image.BICUBIC)
 
-    block_width = img.width // 8
-    block_height = img.height // 8
-    new_img = Image.new('RGB', (block_width * 8, block_height * 8))
-    seq = RandomSequence(block_width * block_height, seed)
-    for block_y in range(block_height):
-        for block_x in range(block_width):
-            index = seq.next()
-            new_block_x = index % block_width
-            new_block_y = index // block_width
-            block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
-            new_img.paste(block, (new_block_x * 8, new_block_y * 8))
+    # https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
+    # block_width = img.width // 8
+    # block_height = img.height // 8
+    # new_img = Image.new('RGB', (block_width * 8, block_height * 8))
+    # seq = RandomSequence(block_width * block_height, seed)
+    # for block_y in range(block_height):
+    #     for block_x in range(block_width):
+    #         index = seq.next()
+    #         new_block_x = index % block_width
+    #         new_block_y = index // block_width
+    #         block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
+    #         new_img.paste(block, (new_block_x * 8, new_block_y * 8))
+
+    # https://github.com/xfgryujk/weibo-img-crypto/blob/dc9b5f2a8a2163ac11d076aaac3d68a03a49b795/src/codec.js#L206
+    invert_first = True
+    for y in range(0, img.height, 8):
+        height = min(8, img.height - y)
+        for x in range(0 if invert_first else 8, img.width, 16):
+            width = min(8, img.width - x)
+            block = img.crop((x, y, x + width, y + height))
+            block = ImageOps.invert(block)
+            img.paste(block, (x, y))
+        invert_first = not invert_first
 
     f = BytesIO()
-    new_img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
+    img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
     return f.getvalue()
