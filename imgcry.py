@@ -5,6 +5,7 @@ import re
 import time
 from io import BytesIO
 
+import imageio
 from PIL import Image, ImageOps
 
 
@@ -63,30 +64,27 @@ class RandomSequence:
         return result
 
 
-def encrypt_image(data, seed=114514):
-    f = BytesIO(data)
-    img = Image.open(f)
+# https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
+def shuffle_block(img, seed=114514):
+    block_width = img.width // 8
+    block_height = img.height // 8
+    new_img = Image.new('RGB', (block_width * 8, block_height * 8))
+    seq = RandomSequence(block_width * block_height, seed)
+    for block_y in range(block_height):
+        for block_x in range(block_width):
+            index = seq.next()
+            new_block_x = index % block_width
+            new_block_y = index // block_width
+            block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
+            new_img.paste(block, (new_block_x * 8, new_block_y * 8))
 
-    # 最短边长超过1080的会被微博压缩
-    min_size = min(img.width, img.height)
-    if min_size > 1080:
-        scale = 1080 / min_size
-        img = img.resize((round(img.width * scale), round(img.height * scale)), Image.BICUBIC)
+    f = BytesIO()
+    img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
+    return f.getvalue()
 
-    # https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
-    # block_width = img.width // 8
-    # block_height = img.height // 8
-    # new_img = Image.new('RGB', (block_width * 8, block_height * 8))
-    # seq = RandomSequence(block_width * block_height, seed)
-    # for block_y in range(block_height):
-    #     for block_x in range(block_width):
-    #         index = seq.next()
-    #         new_block_x = index % block_width
-    #         new_block_y = index // block_width
-    #         block = img.crop((block_x * 8, block_y * 8, (block_x + 1) * 8, (block_y + 1) * 8))
-    #         new_img.paste(block, (new_block_x * 8, new_block_y * 8))
 
-    # https://github.com/xfgryujk/weibo-img-crypto/blob/dc9b5f2a8a2163ac11d076aaac3d68a03a49b795/src/codec.js#L206
+# https://github.com/xfgryujk/weibo-img-crypto/blob/8083e7288d188e430ba84aa33c2f01afefa90523/src/codec.js#L160
+def half_invert(img):
     invert_first = True
     for y in range(0, img.height, 8):
         height = min(8, img.height - y)
@@ -100,3 +98,36 @@ def encrypt_image(data, seed=114514):
     f = BytesIO()
     img.save(f, 'JPEG', quality='maximum')  # 大概减少一半文件尺寸
     return f.getvalue()
+
+
+def flicker(img, block_size=16, fps=60):
+    frames = [Image.new('RGB', (img.width, img.height), 'white') for _ in range(2)]
+    copy_first = False
+    for y in range(0, img.height, block_size):
+        height = min(block_size, img.height - y)
+        for x in range(0, img.width, block_size):
+            width = min(block_size, img.width - x)
+            block = img.crop((x, y, x + width, y + height))
+            (frames[0] if copy_first else frames[1]).paste(block, (x, y))
+
+            copy_first = not copy_first
+        copy_first = y // block_size % 2 == 0
+
+    f = BytesIO()
+    imageio.mimwrite(f, frames, 'GIF', fps=fps)
+    return f.getvalue()
+
+
+def encrypt_image(data):
+    f = BytesIO(data)
+    img = Image.open(f)
+
+    # 最短边长超过1080的会被微博压缩
+    min_size = min(img.width, img.height)
+    if min_size > 1080:
+        scale = 1080 / min_size
+        img = img.resize((round(img.width * scale), round(img.height * scale)), Image.BICUBIC)
+
+    # return shuffle_block(img)
+    # return half_invert(img)
+    return flicker(img)
