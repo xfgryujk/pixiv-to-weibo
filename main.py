@@ -85,10 +85,10 @@ class Pixiv2Weibo:
 
         # 发微博
         text = (
-            f'#{image_info["rank"]} {image_info["title"]}\n'
+            f'{image_info["rank_cate"]} #{image_info["rank"]} {image_info["title"]}\n'
             f'作者：{image_info["user_name"]}\n'
             f'标签：{",".join(image_info["tags"])}\n'
-            f'www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
+            f'https://www.pixiv.net/member_illust.php?mode=medium&illust_id={image_info["illust_id"]}'
         )
         await self._weibo.post_weibo(text, image_ids)
         print('OK')

@@ -32,9 +32,12 @@ class PixivApi:
                 params_['content'] = content
             async with self._session.get('https://www.pixiv.net/ranking.php', params=params_,
                                          proxy=self._proxy) as r:
-                data = await r.json()
+                data = (await r.json())['contents']
                 # print(data)
-            return data['contents']
+            cate = f'{mode} {content}' if content else mode
+            for image_info_ in data:
+                image_info_['rank_cate'] = cate
+            return data
 
         params = (
             ('male', ''),             # 受男性欢迎
@@ -55,13 +58,13 @@ class PixivApi:
     def _process_image_info(image_info):
         # 过滤BL
         image_info = filter(lambda info: not info['illust_content_type']['bl'], image_info)
-        # 去重
-        image_info = {
-            info['illust_id']: info
-            for info in image_info
-        }
+        # 去重，留下排名最高的
+        id_to_info = {}
+        for info in image_info:
+            if info['illust_id'] not in id_to_info or info['rank'] < id_to_info[info['illust_id']]['rank']:
+                id_to_info[info['illust_id']] = info
         # 按排名升序
-        image_info = sorted(image_info.values(), key=lambda info: info['rank'])
+        image_info = sorted(id_to_info.values(), key=lambda info_: info_['rank'])
         return image_info
 
     async def get_image_data(self, image_info):
